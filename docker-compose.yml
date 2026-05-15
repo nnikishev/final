@@ -59,7 +59,7 @@ services:
     volumes:
       - ./videos:/media   # папка с видеофайлами
     command: >
-      -re -stream_loop -1 -i /media/better_boards.mp4
+      -re -stream_loop -1 -i /media/tiny_boards.mp4
       -c copy -f rtsp rtsp://mediamtx:8554/conveyor
     depends_on:
       - mediamtx
