@@ -1,0 +1,125 @@
+# === Общие (IDE, ОС, логи) ===
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.temp
+
+# === React (фронтенд) ===
+# зависимости
+node_modules/
+.pnpm-store/
+
+# сборки
+/dist
+/build
+/build-*/
+
+# кэш React и Webpack
+.cache/
+.parcel-cache/
+/.pnp
+.pnp.js
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# env-файлы фронта (обычно не коммитят)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# отчёты о покрытии тестов / метрики
+coverage/
+*.lcov
+
+# файлы, создаваемые генераторами статики (Next.js, Gatsby и др.)
+.next/
+out/
+!.next/cache/
+
+# === Python (бэкенд) ===
+# виртуальное окружение
+venv/
+env/
+ENV/
+.venv
+.env.backend
+.python-version
+
+# компилированные файлы
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# распределённые пакеты
+/PKG-INFO
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+develop-eggs/
+downloads/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+
+# тесты и coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# файлы БД (если используется SQLite)
+*.db
+*.sqlite3
+
+# миграции (если используется ORM и вы храните их, удалите следующую строку)
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# файлы окружения бэкенда
+.env.backend.local
+.env.prod
+
+# Jupyter
+.ipynb_checkpoints/
+
+# логи Python
+*.log
+
+# === Дополнительно для проектов с двумя частями ===
+# если используете общую папку uploads/media (и не хотите коммитить медиа)
+media/
+uploads/
+staticfiles/
+static_collected/
+
+# собранный фронт, если копируется в бэкенд (например, в Django)
+frontend/build/
+backend/static/

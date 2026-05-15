@@ -1,0 +1,126 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lining_board
+      POSTGRES_USER: lining_user
+      POSTGRES_PASSWORD: lining_password
+    ports:
+      - "5432:5432"
+    volumes:
+    - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lining_user -d lining_board"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: statistics
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: lining_board
+      DB_USER: lining_user 
+      DB_PASSWORD: lining_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+
+  defect_detector:
+    build: ./defect_detector
+    container_name: defect_detector
+    # Раскомментируйте следующие строки при наличии NVIDIA GPU
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # <--
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=lining_user
+      - POSTGRES_PASSWORD=lining_password
+      - POSTGRES_DB=lining_board
+      - SAVE_DEFECT_IMAGES=true
+      - DEFECT_IMAGES_ROOT=/app/defects
+      - CONVEYOR_SPEED_MM_PER_SEC=340
+      - PX_TO_MM_WIDTH_FACTOR=0.5
+      - STATE_MODEL_PATH=/app/models/state_classifier.pth
+      - DEFECT_MODEL_PATH=/app/models/best.pt
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./defect_detector/models:/app/models
+      - defect_images:/app/defects
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  cutting_service:
+    build: ./cutting_service
+    container_name: cutting_service
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=lining_user
+      - POSTGRES_PASSWORD=lining_password
+      - POSTGRES_DB=lining_board
+    ports:
+      - "8001:8000"
+    depends_on:
+      - redis
+      - postgres
+      - defect_detector
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: lining-board-frontend
+    restart: unless-stopped
+    ports:
+      - "4173:4173"
+    depends_on:
+      - backend
+
+  dozzle:
+    container_name: dozzle
+    image: amir20/dozzle:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dozzle_data:/data
+    ports:
+      - 8080:8080
+
+volumes:
+  dozzle_data:
+  defect_images:
