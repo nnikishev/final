@@ -24,8 +24,8 @@ export function Dashboard() {
   const [cameraStatus, setCameraStatus] = useState<'running' | 'stopped' | 'unknown'>('unknown');
   const [cameraActionLoading, setCameraActionLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [cameraId, setCameraId] = useState('front_camera');
-  const [rtspUrl, setRtspUrl] = useState('rtsp://localhost:8554/conveyor');
+  const [cameraId, setCameraId] = useState('Конвейнер');
+  const [rtspUrl, setRtspUrl] = useState('rtsp://mediamtx:8554/conveyor');
 
   useEffect(() => {
     loadData();
