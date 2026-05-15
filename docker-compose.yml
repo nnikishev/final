@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-    - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lining_user -d lining_board"]
       interval: 10s
@@ -37,7 +37,6 @@ services:
       postgres:
         condition: service_healthy
 
-
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -45,11 +44,29 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: mediamtx
+    restart: unless-stopped
+    ports:
+      - "8554:8554"   # RTSP порт для внешних подключений
+    # Конфигурация по умолчанию подходит, можно добавить свой mediamtx.yml при необходимости
+
+  streamer:
+    image: jrottenberg/ffmpeg:latest
+    container_name: streamer
+    restart: unless-stopped
+    volumes:
+      - ./videos:/media   # папка с видеофайлами
+    command: >
+      -re -stream_loop -1 -i /media/better_boards.mp4
+      -c copy -f rtsp rtsp://mediamtx:8554/conveyor
+    depends_on:
+      - mediamtx
 
   defect_detector:
     build: ./defect_detector
     container_name: defect_detector
-    # Раскомментируйте следующие строки при наличии NVIDIA GPU
     runtime: nvidia
     deploy:
       resources:
@@ -58,7 +75,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    # <--
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -81,6 +97,7 @@ services:
     depends_on:
       - redis
       - postgres
+      - mediamtx
     restart: unless-stopped
 
   cutting_service:
