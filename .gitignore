@@ -13,6 +13,8 @@ Thumbs.db
 *.tmp
 *.temp
 
+defect_detector/defects
+
 # === React (фронтенд) ===
 # зависимости
 node_modules/
