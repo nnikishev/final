@@ -25,10 +25,10 @@ docker-compose up -d
 ```
 
 ## Доступы после запуска
-API статистики : `http://localhost:8000/docs`
-CV-сервис : `http://localhost:8002/docs`
-Фронтенд : `http://localhost:4173`
-Dozzle (логи) : `http://localhost:8080`
+- API статистики : `http://localhost:8000/docs`
+- CV-сервис : `http://localhost:8002/docs`
+- Фронтенд : `http://localhost:4173`
+- Dozzle (логи) : `http://localhost:8080`
 
 ## Управление камерой
 На дашборде нажмите «Запустить камеру».
@@ -58,15 +58,15 @@ total_length_mm = (end_time_sec - start_time_sec) × CONVEYOR_SPEED_MM_PER_SEC
 ## Переменные окружения (.env)
 Основные настройки (остальные см. в .env.example):
 
-`CONVEYOR_SPEED_MM_PER_SEC` : скорость конвейера (мм/с), пример 1000
-`PX_TO_MM_WIDTH_FACTOR` : перевод пикселей → мм по ширине, пример 0.5
-`REDIS_HOST` : хост Redis, пример redis
-`REDIS_PORT` : порт Redis, пример 6379
-`POSTGRES_HOST` : хост PostgreSQL, пример postgres
-`POSTGRES_PORT` : порт PostgreSQL, пример 5432
-`POSTGRES_USER` : пользователь БД, пример lining_user
-`POSTGRES_PASSWORD` : пароль БД, пример lining_pass
-`POSTGRES_DB` : имя базы данных, пример lining_board
+- `CONVEYOR_SPEED_MM_PER_SEC` : скорость конвейера (мм/с), пример 1000
+- `PX_TO_MM_WIDTH_FACTOR` : перевод пикселей → мм по ширине, пример 0.5
+- `REDIS_HOST` : хост Redis, пример redis
+- `REDIS_PORT` : порт Redis, пример 6379
+- `POSTGRES_HOST` : хост PostgreSQL, пример postgres
+- `POSTGRES_PORT` : порт PostgreSQL, пример 5432
+- `POSTGRES_USER` : пользователь БД, пример lining_user
+- `POSTGRES_PASSWORD` : пароль БД, пример lining_pass
+- `POSTGRES_DB` : имя базы данных, пример lining_board
 
 ## Таблица цен (price_list)
 Раскрой возможен только при наличии записей в price_list.
