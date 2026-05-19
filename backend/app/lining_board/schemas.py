@@ -13,6 +13,7 @@ class DefectDTO(BaseModel):
     defect_type: str
     severity: DefectSeverityLiteral
     location: str
+    image_source: str | None = None
 
 class CuttingSegmentDTO(BaseModel):
     from_mm: float

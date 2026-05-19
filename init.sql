@@ -20,7 +20,8 @@ CREATE TABLE defects (
     width_mm REAL,
     bbox_px JSONB,
     frame_idx INTEGER,
-    timestamp TIMESTAMP DEFAULT now()
+    timestamp TIMESTAMP DEFAULT now(),
+    image_source TEXT
 );
 CREATE INDEX idx_defects_board_id ON defects(board_id);
 

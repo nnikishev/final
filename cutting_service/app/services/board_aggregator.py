@@ -42,10 +42,12 @@ class BoardAggregator:
                     "bbox_px": event["bbox_px"],
                     "frame_idx": event["frame_idx"],
                     "position_from_start_mm": event["position_mm"]["from_start_mm"],
-                    "timestamp": datetime.fromisoformat(event["timestamp"])
+                    "timestamp": datetime.fromisoformat(event["timestamp"]),
+                    "image_source": event.get("image_source")  
                 }
+                print(defect)
                 self.active_boards[board_id]["defects"].append(defect)
-                # Сохраняем дефект в БД сразу
+                
                 async with AsyncSessionLocal() as db:
                     defect_db = Defect(
                         board_id=board_id,
@@ -55,7 +57,8 @@ class BoardAggregator:
                         width_mm=defect["width_mm"],
                         bbox_px=defect["bbox_px"],
                         frame_idx=defect["frame_idx"],
-                        timestamp=defect["timestamp"]
+                        timestamp=defect["timestamp"],
+                        image_source=defect["image_source"] 
                     )
                     db.add(defect_db)
                     await db.commit()

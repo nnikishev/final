@@ -32,6 +32,7 @@ class DefectEvent(BaseModel):
     bbox_px: BBox
     frame_idx: int
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    image_source: str
 
 class BoardStartEvent(BaseModel):
     type: str = "board_start"

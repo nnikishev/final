@@ -16,3 +16,4 @@ class Defect(Base):
     bbox_px = Column(JSON)  # {x1,y1,x2,y2}
     frame_idx = Column(Integer)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    image_source = Column(String)

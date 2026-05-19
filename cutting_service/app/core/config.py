@@ -32,7 +32,7 @@ class Settings(BaseSettings):
         'resin_pocket': 0.5,
         'broken_board': 2.0,
     }
-    MAX_GRADE: int = 3
+    MAX_GRADE: int = 0
 
     # Цены по умолчанию (руб/шт) для комбинаций длина_м × сорт
     # Позже будут загружаться из БД, здесь для инициализации

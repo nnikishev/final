@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 from app.services.price_service import PriceService
 from app.core.config import settings
 
+
 class GreedyCutter:
     def __init__(self, price_service: PriceService):
         self.price_service = price_service
@@ -10,22 +11,20 @@ class GreedyCutter:
     async def optimize(self, board_id: str, total_length_mm: float, defects: List[Dict[str, Any]]):
         """
         Жадный алгоритм раскроя с учётом дефектов.
-        Если total_length_mm <= 0, используется значение по умолчанию 6000 мм.
-        Всегда создаётся хотя бы один сегмент, чтобы алгоритм мог вырезать заготовки.
+        Сортировка заготовок: сначала самый высокий сорт (0 = Экстра), внутри – по убыванию длины.
         """
         # 1. Нормализация длины доски
         if total_length_mm is None or total_length_mm <= 0:
-            total_length_mm = 6000.0  # 6 метров по умолчанию
+            total_length_mm = 6000.0
             print(f"WARNING: board {board_id} has invalid total_length_mm, set to {total_length_mm} mm")
 
-        # 2. Построение сегментов с учётом дефектов
+        # 2. Построение сегментов с учётом дефектов (зона влияния 50 мм)
         if not defects:
             segments = [{"from_mm": 0, "to_mm": total_length_mm, "max_grade": 0}]
         else:
-            margin = 50  # мм, зона влияния дефекта
+            margin = 50  # мм
             events = []
             for d in defects:
-                # Извлекаем позицию дефекта в миллиметрах
                 pos = d.get("position_from_start_mm")
                 if pos is None:
                     pos = d.get("position_mm")
@@ -70,25 +69,23 @@ class GreedyCutter:
             segments = [{"from_mm": 0, "to_mm": total_length_mm, "max_grade": 0}]
             print(f"WARNING: no segments created for board {board_id}, using full board as one segment")
 
-        # 4. Получение и сортировка заготовок по цене за мм
+        # 4. Получение всех доступных заготовок и их сортировка по классу (сорт → длина ↓)
         all_prices = await self.price_service.get_all_prices()
         items = []
         for p in all_prices:
             length_mm = p.length_m * settings.M_TO_MM
             if length_mm <= 0 or length_mm > total_length_mm:
                 continue
-            price_per_mm = p.price / length_mm
             items.append({
                 "length_m": p.length_m,
                 "length_mm": length_mm,
-                "grade": p.grade,
-                "price": p.price,
-                "price_per_mm": price_per_mm
+                "grade": p.grade,      # 0=Экстра, 1=А, 2=В, 3=С
+                "price": p.price
             })
-        items.sort(key=lambda x: x["price_per_mm"], reverse=True)
+        # Сортировка: сначала лучший сорт (меньше число), внутри – самая длинная заготовка
+        items.sort(key=lambda x: (x["grade"], -x["length_mm"]))
 
         if not items:
-            # Если нет подходящих заготовок (пустой прайс-лист или все длиннее доски)
             return {
                 "board_id": str(board_id),
                 "segments": [],
@@ -97,12 +94,13 @@ class GreedyCutter:
                 "error": "No price items available"
             }
 
-        # 5. Жадный раскрой
+        # 5. Жадный раскрой (перебираем заготовки в отсортированном порядке)
         used_segments = []
         remaining_segments = [seg.copy() for seg in segments]
         for item in items:
             for seg in remaining_segments[:]:
                 seg_len = seg["to_mm"] - seg["from_mm"]
+                # Сегмент должен быть не хуже требуемого сорта (max_grade <= grade заготовки)
                 if seg_len >= item["length_mm"] and seg["max_grade"] <= item["grade"]:
                     cut = {
                         "from_mm": seg["from_mm"],
@@ -127,19 +125,29 @@ class GreedyCutter:
 
     def _calculate_segment_grade(self, defects: List[Dict]) -> int:
         """
-        Вычисляет максимально допустимый сорт для отрезка по правилам.
-        Возвращает целое число: 0 - A, 1 - B, 2 - C, 3 - D.
+        Вычисляет сорт отрезка лицевой стороны по правилам задания.
+        Возвращает:
+            0 – Экстра (идеально)
+            1 – А (только живые светлые сучки)
+            2 – В (тёмные сучки, смоляные кармашки, сколы, сердцевина)
+            3 – С (выпавшие сучки, трещины, синева, сквозные отверстия)
         """
-        # 1. Битые доски -> D
-        if any(d.get("defect_type") == "broken_board" for d in defects):
-            return 3
-        # 2. Смоляные карманы -> не выше C
-        if any(d.get("defect_type") == "resin_pocket" for d in defects):
-            return 2
-        # 3. Сучки: если их более 3 в зоне (margin) -> C, иначе B (если есть хотя бы один)
-        knot_count = sum(1 for d in defects if d.get("defect_type") in ["alive_knot", "dead_knot", "missed_knot"])
-        if knot_count > 3:
-            return 2  # C
-        if knot_count > 0:
-            return 1  # B
-        return 0  # A
+        # Дефекты, которые сразу дают сорт С
+        grade_c_defects = {"missed_knot", "broken_board"}
+        # Дефекты, дающие сорт В (при отсутствии дефектов С)
+        grade_b_defects = {"dead_knot", "resin_pocket",}
+        # Дефекты, дающие сорт А (только живые сучки, при отсутствии более серьёзных)
+        grade_a_defects = {"alive_knot"}
+
+        max_grade = 0  # пока Экстра
+
+        for d in defects:
+            defect_type = d.get("defect_type")
+            if defect_type in grade_c_defects:
+                return 3  # сразу С, так как это самый низкий сорт
+            elif defect_type in grade_b_defects:
+                max_grade = max(max_grade, 2)
+            elif defect_type in grade_a_defects:
+                max_grade = max(max_grade, 1)
+
+        return max_grade

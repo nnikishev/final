@@ -1,16 +1,21 @@
 # app/services/frame_processor.py
-import os
 import uuid
+import os
 import cv2
 import asyncio
+import io
+import uuid
+import boto3
+from PIL import Image
 from pathlib import Path
-from typing import Optional, Dict
 from app.services.video_source import VideoSource
 from app.services.state_detector import StateDetector
 from app.services.defect_detector import DefectDetector
 from app.services.coordinate_converter import CoordinateConverter
 from app.services.publisher import RedisPublisher
 from app.models.schemas import BoardStartEvent, BoardEndEvent, DefectEvent, BBox
+import concurrent.futures
+
 
 class FrameProcessor:
     def __init__(self,
@@ -34,44 +39,77 @@ class FrameProcessor:
         self.defect_every_n = defect_every_n
         self.save_defect_images = save_defect_images
         self.defect_images_root = Path(defect_images_root)
-
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
         self.running = False
         self.current_board = None   # хранит board_id, start_frame, собранные дефекты, а также счётчик дефектов
         self.boards_processed = 0
         self.total_defects = 0
         self.frame_count = 0
         self.last_frame_time = 0.0
+        self.minio_endpoint = os.getenv('MINIO_ENDPOINT', 'minio:9000')
+        self.minio_access_key = os.getenv('MINIO_ACCESS_KEY', 'minioadmin')
+        self.minio_secret_key = os.getenv('MINIO_SECRET_KEY', 'minioadmin')
+        self.minio_bucket = os.getenv('MINIO_BUCKET', 'lining-defects')
+        self.s3_client = boto3.client(
+            's3',
+            endpoint_url=f'http://{self.minio_endpoint}',
+            aws_access_key_id=self.minio_access_key,
+            aws_secret_access_key=self.minio_secret_key,
+            use_ssl=False,
+            verify=False
+        )
+        # Создаём бакет, если его нет
+        try:
+            self.s3_client.create_bucket(Bucket=self.minio_bucket)
+        except:
+            pass
 
-    def _save_defect_image(self, frame, defect: dict, board_id: uuid.UUID, defect_index: int):
-        """Сохраняет кадр с нарисованными bounding box и меткой дефекта."""
-        # Копируем кадр, чтобы не испортить оригинал
+    def _save_defect_image(self, frame, defect: dict, board_id: uuid.UUID, defect_index: int, object_name: str):
+        """Аннотирует кадр и загружает в MinIO (выполняется в потоке)."""
         annotated = frame.copy()
-        bbox = defect['bbox']  # [x1, y1, x2, y2]
+        bbox = defect['bbox']
         defect_type = defect['type']
         confidence = defect['confidence']
 
-        # Цвета для разных типов дефектов (можно вынести в конфиг)
         color_map = {
-            'alive_knot': (0, 255, 0),      # зелёный
-            'dead_knot': (0, 165, 255),     # оранжевый
-            'missed_knot': (0, 0, 255),     # красный
-            'resin_pocket': (255, 255, 0),  # голубой
-            'broken_board': (255, 0, 255)   # розовый
+            'alive_knot': (0, 255, 0),
+            'dead_knot': (0, 165, 255),
+            'missed_knot': (0, 0, 255),
+            'resin_pocket': (255, 255, 0),
+            'broken_board': (255, 0, 255)
         }
         color = color_map.get(defect_type, (0, 255, 0))
 
-        # Рисуем прямоугольник
         cv2.rectangle(annotated, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
-        # Метка с типом и уверенностью
         label = f"{defect_type} {confidence:.2f}"
         cv2.putText(annotated, label, (bbox[0], bbox[1] - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-        # Формируем путь: defects/board_<uuid>/defect_<индекс>.jpg
-        board_dir = self.defect_images_root / f"board_{board_id}"
-        board_dir.mkdir(parents=True, exist_ok=True)
-        img_path = board_dir / f"defect_{defect_index:04d}.jpg"
-        cv2.imwrite(str(img_path), annotated)
+        annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(annotated_rgb)
+        buffer = io.BytesIO()
+        pil_img.save(buffer, format='JPEG', quality=95)
+        buffer.seek(0)
+
+        try:
+            self.s3_client.upload_fileobj(
+                buffer,
+                self.minio_bucket,
+                object_name,
+                ExtraArgs={'ContentType': 'image/jpeg'}
+            )
+            print(f"Saved defect image to MinIO: {object_name}")
+        except Exception as e:
+            print(f"Failed to upload defect image to MinIO: {e}")
+
+    # Асинхронная обёртка: возвращает object_name сразу, загрузка в фоне
+    async def _save_defect_image_async(self, frame, defect: dict, board_id: uuid.UUID, defect_index: int) -> str:
+        object_name = f"defects/board_{board_id}/defect_{defect_index:04d}.jpg"
+        loop = asyncio.get_running_loop()
+        # Запускаем загрузку в потоке без ожидания (fire-and-forget)
+        loop.run_in_executor(self._executor, self._save_defect_image,
+                            frame, defect, board_id, defect_index, object_name)
+        return object_name
 
     async def run(self):
         """Запускает обработку видеопотока."""
@@ -137,6 +175,8 @@ class FrameProcessor:
                         bbox_center_x=bbox_center_x,
                         bbox_center_y=bbox_center_y
                     )
+                    defect_counter += 1
+                    image_src = await self._save_defect_image_async(frame, defect, self.current_board['board_id'], defect_counter)
                     defect_event = DefectEvent(
                         board_id=self.current_board['board_id'],
                         defect_type=defect['type'],
@@ -144,15 +184,11 @@ class FrameProcessor:
                         position_mm=position_mm,
                         bbox_px=BBox(x1=defect['bbox'][0], y1=defect['bbox'][1],
                                      x2=defect['bbox'][2], y2=defect['bbox'][3]),
-                        frame_idx=frame_idx
+                        frame_idx=frame_idx,
+                        image_source=image_src
                     )
                     await self.publisher.publish(defect_event)
-
-                    # Сохраняем изображение дефекта (если включено)
-                    if self.save_defect_images:
-                        defect_counter += 1
-                        self._save_defect_image(frame, defect, self.current_board['board_id'], defect_counter)
-
+                        
                     self.current_board['defects'].append(defect_event.dict())
                     self.total_defects += 1
 

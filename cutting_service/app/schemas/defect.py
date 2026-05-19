@@ -10,6 +10,7 @@ class DefectCreate(BaseModel):
     width_mm: float
     bbox_px: Dict[int, int]
     frame_idx: int
+    image_source: str
 
 class DefectOut(DefectCreate):
     id: UUID

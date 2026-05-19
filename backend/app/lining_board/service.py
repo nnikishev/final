@@ -53,7 +53,8 @@ class StatisticsService:
                     id=str(d.id),
                     defect_type=d.defect_type,
                     severity=self._get_severity(d.defect_type),  # функция преобразования
-                    location=f"{d.position_from_start_mm:.0f}мм" if d.position_from_start_mm else "unknown"
+                    location=f"{d.position_from_start_mm:.0f}мм" if d.position_from_start_mm else "unknown",
+                    image_source=d.image_source,
                 )
                 for d in defects
             ]

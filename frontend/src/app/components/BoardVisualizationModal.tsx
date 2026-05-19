@@ -1,6 +1,6 @@
 // components/BoardVisualizationModal.tsx
 import { useEffect, useRef, useState } from 'react';
-import { X, Ruler } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Board, Defect } from '../types/board';
 
 interface Props {
@@ -8,15 +8,21 @@ interface Props {
   onClose: () => void;
 }
 
-// Цвета для разных сортов
-const GRADE_COLORS: Record<string, string> = {
-  A: '#10b981', // зелёный
-  B: '#3b82f6', // синий
-  C: '#f59e0b', // оранжевый
-  D: '#ef4444', // красный
+// Цвета для разных сортов (ключ - число grade)
+const GRADE_COLORS: Record<number, string> = {
+  0: '#10b981', // A
+  1: '#3b82f6', // B
+  2: '#f59e0b', // C
+  3: '#ef4444', // D
 };
 
-// Отображение типа дефекта на русский
+const GRADE_LETTER: Record<number, string> = {
+  0: 'Экстра',
+  1: 'А',
+  2: 'B',
+  3: 'BC',
+};
+
 const DEFECT_RU: Record<string, string> = {
   alive_knot: 'Живой сучок',
   dead_knot: 'Мёртвый сучок',
@@ -25,7 +31,6 @@ const DEFECT_RU: Record<string, string> = {
   broken_board: 'Битая доска',
 };
 
-// Цвета для маркеров дефектов
 const DEFECT_COLORS: Record<string, string> = {
   alive_knot: '#22c55e',
   dead_knot: '#f97316',
@@ -34,25 +39,47 @@ const DEFECT_COLORS: Record<string, string> = {
   broken_board: '#ec4899',
 };
 
+function parseLocationToMm(location: string | number | undefined): number | null {
+  if (location === undefined || location === null) return null;
+  if (typeof location === 'number') return location;
+  const match = String(location).match(/^(\d+(?:\.\d+)?)/);
+  if (match) return parseFloat(match[1]);
+  return null;
+}
+
 export function BoardVisualizationModal({ board, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; imageUrl: string } | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const maxLength = board.total_length_mm || 6000;
-
-  // Стандартная ширина доски для визуализации (в мм)
   const BOARD_WIDTH_MM = 200;
-  // Размеры canvas в px (фиксированные для простоты)
   const canvasWidth = 900;
   const canvasHeight = 220;
-  // Масштаб: мм -> px
   const scaleX = canvasWidth / maxLength;
   const scaleY = canvasHeight / BOARD_WIDTH_MM;
 
-  // Форматирование миллиметров в метры/сантиметры
   const formatLength = (mm: number) => {
-    if (mm >= 1000) return `${(mm / 1000).toFixed(1)} м`;
-    return `${mm} мм`;
+    const rounded = Math.round(mm);
+    if (rounded >= 1000) return `${(rounded / 1000).toFixed(1)} м`;
+    return `${rounded} мм`;
+  };
+
+  // Функция для получения позиции дефекта на холсте (используется и для тултипа, и для клика)
+  const getDefectCanvasCoords = (defect: Defect) => {
+    let posMm: number | null = null;
+    if (defect.position_from_start_mm !== undefined && defect.position_from_start_mm !== null) {
+      posMm = defect.position_from_start_mm;
+    } else if (defect.position_mm !== undefined && defect.position_mm !== null) {
+      posMm = defect.position_mm;
+    } else if (defect.location !== undefined) {
+      posMm = parseLocationToMm(defect.location);
+    }
+    if (posMm === null || posMm < 0 || posMm > maxLength) return null;
+    const x = posMm * scaleX;
+    let y = (defect.width_mm || BOARD_WIDTH_MM / 2) * scaleY;
+    y = Math.min(Math.max(y, 8), canvasHeight - 8);
+    return { x, y };
   };
 
   useEffect(() => {
@@ -62,15 +89,13 @@ export function BoardVisualizationModal({ board, onClose }: Props) {
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-    // 1. Рисуем фон доски (светло-жёлтый, имитация дерева)
     ctx.fillStyle = '#fef3c7';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     ctx.strokeStyle = '#78350f';
     ctx.lineWidth = 2;
     ctx.strokeRect(0, 0, canvasWidth, canvasHeight);
 
-    // 2. Рисуем линии разметки длины (каждые 500 мм)
+    // Разметка
     ctx.fillStyle = '#6b7280';
     ctx.font = '10px sans-serif';
     ctx.strokeStyle = '#d1d5db';
@@ -85,43 +110,38 @@ export function BoardVisualizationModal({ board, onClose }: Props) {
       ctx.fillText(formatLength(mm), x + 2, 15);
     }
 
-    // 3. Рисуем сегменты раскроя (если есть)
+    // Сегменты раскроя
     if (board.cutting_plan && board.cutting_plan.segments.length > 0) {
       for (const seg of board.cutting_plan.segments) {
         const x1 = seg.from_mm * scaleX;
         const x2 = seg.to_mm * scaleX;
-        const grade = seg.grade;
-        const color = GRADE_COLORS[grade] || '#9ca3af';
-        ctx.fillStyle = color + '60'; // полупрозрачный
+        const gradeNum = seg.grade;
+        const color = GRADE_COLORS[gradeNum] || '#9ca3af';
+        ctx.fillStyle = color + '60';
         ctx.fillRect(x1, 0, x2 - x1, canvasHeight);
         ctx.strokeStyle = '#374151';
         ctx.lineWidth = 1;
         ctx.strokeRect(x1, 0, x2 - x1, canvasHeight);
-        // Подпись сорта и длины
         ctx.fillStyle = '#1f2937';
         ctx.font = 'bold 12px sans-serif';
-        ctx.fillText(`${grade} (${formatLength(seg.to_mm - seg.from_mm)})`, x1 + 5, 25);
-        // Подпись цены
+        const gradeLetter = GRADE_LETTER[gradeNum] || '?';
+        ctx.fillText(`${gradeLetter} (${formatLength(seg.to_mm - seg.from_mm)})`, x1 + 5, 25);
         ctx.font = '10px sans-serif';
         ctx.fillStyle = '#4b5563';
         ctx.fillText(`${seg.price} руб`, x1 + 5, 45);
       }
     } else {
-      // Если плана раскроя нет, просто показываем пустую доску
       ctx.fillStyle = '#9ca3af';
       ctx.font = 'italic 14px sans-serif';
       ctx.fillText('План раскроя не рассчитан', canvasWidth / 2 - 100, canvasHeight / 2);
     }
 
-    // 4. Рисуем дефекты
+    // Дефекты
     for (const defect of board.defects) {
-      const x = (defect.position_from_start_mm || 0) * scaleX;
-      // y координата по ширине: width_mm может быть от 0 до BOARD_WIDTH_MM
-      let y = (defect.width_mm || BOARD_WIDTH_MM / 2) * scaleY;
-      // Ограничиваем, чтобы не вылезать за края
-      y = Math.min(Math.max(y, 8), canvasHeight - 8);
+      const coords = getDefectCanvasCoords(defect);
+      if (!coords) continue;
+      const { x, y } = coords;
       const color = DEFECT_COLORS[defect.defect_type] || '#ef4444';
-
       ctx.beginPath();
       ctx.arc(x, y, 7, 0, 2 * Math.PI);
       ctx.fillStyle = color;
@@ -129,47 +149,66 @@ export function BoardVisualizationModal({ board, onClose }: Props) {
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2;
       ctx.stroke();
-      // Маленькая белая точка в центре для акцента
       ctx.beginPath();
       ctx.arc(x, y, 2, 0, 2 * Math.PI);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
     }
 
-    // Обработчик движения мыши для тултипа
     const handleMouseMove = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const mouseX = (e.clientX - rect.left) * (canvasWidth / rect.width);
       const mouseY = (e.clientY - rect.top) * (canvasHeight / rect.height);
-      let found: Defect | null = null;
+      let foundDefect: Defect | null = null;
       for (const defect of board.defects) {
-        const x = (defect.position_from_start_mm || 0) * scaleX;
-        let y = (defect.width_mm || BOARD_WIDTH_MM / 2) * scaleY;
-        y = Math.min(Math.max(y, 8), canvasHeight - 8);
-        const dx = mouseX - x;
-        const dy = mouseY - y;
+        const coords = getDefectCanvasCoords(defect);
+        if (!coords) continue;
+        const dx = mouseX - coords.x;
+        const dy = mouseY - coords.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 10) {
-          found = defect;
+          foundDefect = defect;
           break;
         }
       }
-      if (found) {
+      if (foundDefect) {
+        const imageUrl = `http://localhost:9000/lining-defects/${foundDefect.image_source}`;
         setTooltip({
           x: e.clientX,
           y: e.clientY,
-          text: `${DEFECT_RU[found.defect_type] || found.defect_type} (${(found.confidence || 0).toFixed(2)})`
+          text: `${DEFECT_RU[foundDefect.defect_type] || foundDefect.defect_type}${foundDefect.confidence ? ` (${foundDefect.confidence.toFixed(2)})` : ''}`,
+          imageUrl,
         });
       } else {
         setTooltip(null);
       }
     };
 
+    const handleCanvasClick = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = (e.clientX - rect.left) * (canvasWidth / rect.width);
+      const mouseY = (e.clientY - rect.top) * (canvasHeight / rect.height);
+      for (const defect of board.defects) {
+        const coords = getDefectCanvasCoords(defect);
+        if (!coords) continue;
+        const dx = mouseX - coords.x;
+        const dy = mouseY - coords.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 10) {
+          const imageUrl = `http://localhost:9000/lining-defects/${defect.image_source}`;
+          setLightboxImage(imageUrl);
+          break;
+        }
+      }
+    };
+
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('mouseleave', () => setTooltip(null));
+    canvas.addEventListener('click', handleCanvasClick);
 
     return () => {
       canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('click', handleCanvasClick);
     };
   }, [board, canvasWidth, canvasHeight, maxLength, scaleX, scaleY]);
 
@@ -204,23 +243,23 @@ export function BoardVisualizationModal({ board, onClose }: Props) {
             ref={canvasRef}
             width={canvasWidth}
             height={canvasHeight}
-            style={{ width: '100%', height: 'auto', border: '1px solid #d1d5db', borderRadius: '8px', backgroundColor: '#fef3c7' }}
+            style={{ width: '100%', height: 'auto', border: '1px solid #d1d5db', borderRadius: '8px', backgroundColor: '#fef3c7', cursor: 'pointer' }}
           />
           {tooltip && (
             <div
               style={{
                 position: 'fixed',
                 left: tooltip.x + 10,
-                top: tooltip.y - 30,
+                top: tooltip.y - 60,
                 backgroundColor: '#1f2937',
                 color: 'white',
-                padding: '4px 10px',
-                borderRadius: '6px',
+                padding: '6px 10px',
+                borderRadius: '8px',
                 fontSize: '12px',
                 pointerEvents: 'none',
                 zIndex: 60,
+                boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
                 whiteSpace: 'nowrap',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
               }}
             >
               {tooltip.text}
@@ -234,16 +273,38 @@ export function BoardVisualizationModal({ board, onClose }: Props) {
           <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-red-500"></div> Выпавший сучок</div>
           <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-yellow-400"></div> Смоляной карман</div>
           <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-pink-500"></div> Битая доска</div>
-          <div className="flex items-center gap-2 ml-4"><div className="w-4 h-4 bg-green-500/40 border border-gray-500"></div> Сорт A</div>
-          <div className="flex items-center gap-2"><div className="w-4 h-4 bg-blue-500/40 border border-gray-500"></div> Сорт B</div>
-          <div className="flex items-center gap-2"><div className="w-4 h-4 bg-orange-500/40 border border-gray-500"></div> Сорт C</div>
-          <div className="flex items-center gap-2"><div className="w-4 h-4 bg-red-500/40 border border-gray-500"></div> Сорт D</div>
+          <div className="flex items-center gap-2 ml-4"><div className="w-4 h-4 bg-green-500/40 border border-gray-500"></div> Экстра </div>
+          <div className="flex items-center gap-2"><div className="w-4 h-4 bg-blue-500/40 border border-gray-500"></div> Сорт A</div>
+          <div className="flex items-center gap-2"><div className="w-4 h-4 bg-orange-500/40 border border-gray-500"></div> Сорт B</div>
+          <div className="flex items-center gap-2"><div className="w-4 h-4 bg-red-500/40 border border-gray-500"></div> Сорт BC</div>
         </div>
 
         <div className="mt-2 text-xs text-gray-400 text-center">
-          Наведите на кружок дефекта для подробностей. Цветные полосы — сегменты раскроя с указанием сорта, длины и цены.
+          Кликните на кружок дефекта, чтобы открыть увеличенное изображение.
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-screen p-4">
+            <img
+              src={lightboxImage}
+              alt="Увеличенное изображение дефекта"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg"
+            />
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute top-2 right-2 text-white bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-75"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
